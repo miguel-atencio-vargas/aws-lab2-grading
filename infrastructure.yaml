@@ -130,7 +130,7 @@ Resources:
       LaunchTemplateName: Lab2-LaunchTemplate
       LaunchTemplateData:
         ImageId: !Ref LatestAmiId
-        InstanceType: t2.micro
+        InstanceType: t3.micro
         SecurityGroupIds:
           - !Ref EC2SecurityGroup
         UserData:
