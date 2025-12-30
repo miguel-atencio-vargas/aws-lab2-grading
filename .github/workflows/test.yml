@@ -1,0 +1,105 @@
+name: AWS Lab 2 - Deploy and Test
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      cleanup:
+        description: 'Delete stack after testing'
+        required: false
+        default: 'false'
+        type: choice
+        options:
+          - 'true'
+          - 'false'
+
+env:
+  AWS_REGION: us-east-1
+  STACK_NAME: coderoad-lab-2
+
+permissions:
+  id-token: write   # Required for OIDC
+  contents: read
+
+jobs:
+  deploy-and-test:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials using OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install boto3 pytest requests
+
+      - name: Deploy CloudFormation Stack
+        run: |
+          echo "Deploying CloudFormation stack: ${{ env.STACK_NAME }}"
+          aws cloudformation deploy \
+            --stack-name ${{ env.STACK_NAME }} \
+            --template-file infrastructure.yaml \
+            --region ${{ env.AWS_REGION }} \
+            --no-fail-on-empty-changeset
+          
+          echo "Waiting for stack to be ready..."
+          aws cloudformation wait stack-create-complete \
+            --stack-name ${{ env.STACK_NAME }} \
+            --region ${{ env.AWS_REGION }} || \
+          aws cloudformation wait stack-update-complete \
+            --stack-name ${{ env.STACK_NAME }} \
+            --region ${{ env.AWS_REGION }}
+
+      - name: Get Stack Outputs
+        run: |
+          ALB_DNS=$(aws cloudformation describe-stacks \
+            --stack-name ${{ env.STACK_NAME }} \
+            --region ${{ env.AWS_REGION }} \
+            --query 'Stacks[0].Outputs[?OutputKey==`LoadBalancerDNSName`].OutputValue' \
+            --output text)
+          echo "ALB DNS: $ALB_DNS"
+          echo "ALB_DNS=$ALB_DNS" >> $GITHUB_ENV
+
+      - name: Run Pytest Tests
+        run: |
+          echo "Running pytest tests..."
+          pytest test_lab2.py -v --tb=short
+
+      - name: Manual Curl Test (for verification)
+        if: success()
+        run: |
+          echo "Testing ALB endpoint with curl..."
+          curl -v http://${{ env.ALB_DNS }}/
+
+      - name: Cleanup - Delete Stack
+        if: |
+          always() && 
+          (github.event.inputs.cleanup == 'true' || 
+           (github.event_name == 'workflow_dispatch' && github.event.inputs.cleanup == 'true'))
+        run: |
+          echo "Cleaning up stack: ${{ env.STACK_NAME }}"
+          aws cloudformation delete-stack \
+            --stack-name ${{ env.STACK_NAME }} \
+            --region ${{ env.AWS_REGION }}
+          
+          echo "Waiting for stack deletion to complete..."
+          aws cloudformation wait stack-delete-complete \
+            --stack-name ${{ env.STACK_NAME }} \
+            --region ${{ env.AWS_REGION }}
