@@ -170,6 +170,7 @@ You need to set up AWS OIDC (OpenID Connect) authentication for GitHub Actions.
    - `AmazonEC2FullAccess`
    - `ElasticLoadBalancingFullAccess`
    - `AutoScalingFullAccess`
+   - `AmazonSSMReadOnlyAccess` (required for fetching latest AMI)
    
    Or create a custom policy with least-privilege access
 
